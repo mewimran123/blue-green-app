@@ -20,12 +20,13 @@ phases:
     commands:
       - echo "Pushing image to ECR..."
       - docker push $IMAGE_URI
-
+      
       - echo "Fetching current task definition..."
-      - TASK_DEF=$(aws ecs describe-task-definition --task-definition blue-green-task-kln --query taskDefinition)
+      - aws ecs describe-task-definition --task-definition $TASK_FAMILY --query "taskDefinition" > task-def.json
 
-      - echo "Registering new task definition with updated image..."
-      - NEW_TASK_DEF=$(echo $TASK_DEF | jq --arg IMAGE "$IMAGE_URI" '
+      - echo "Updating task definition with new image..."
+      - |
+        jq --arg IMAGE "$IMAGE_URI" '
           .containerDefinitions[0].image = $IMAGE
           | del(
               .taskDefinitionArn,
@@ -35,14 +36,20 @@ phases:
               .compatibilities,
               .registeredAt,
               .registeredBy
-            )')
-
-      - echo "$NEW_TASK_DEF" > new-task-def.json
-
+            )
+        ' task-def.json > new-task-def.json
+        
+      - echo "New task definition created:"
+      - cat new-task-def.json
+      
+      - echo "Registering new task definition revision..."
       - NEW_TASK_DEF_ARN=$(aws ecs register-task-definition \
           --cli-input-json file://new-task-def.json \
-          --query 'taskDefinition.taskDefinitionArn' \
+          --query "taskDefinition.taskDefinitionArn" \
           --output text)
+
+      - echo "New Task Definition ARN: $NEW_TASK_DEF_ARN"
+
 
       - echo "Updating ECS service with new task definition..."
       - aws ecs update-service \
